@@ -8,6 +8,7 @@ module.exports = ({ q, bad, str, fa, body, featureOn, on }) => {
     sell_confirmed: { label: 'فروش تأییدشده', hint: 'حداقل تعداد سکه در سفارش (۰ = هر مقدار)' },
     buy_confirmed: { label: 'خرید تأییدشده', hint: 'حداقل تعداد سکه در سفارش (۰ = هر مقدار)' },
     sell_count: { label: 'رسیدن به تعداد فروش تأییدشده', hint: 'تعداد فروش‌ها (حداقل ۱)' },
+    comment_posted: { label: 'ارسال نظر', hint: '' },
     manual: { label: 'تأیید دستی توسط مدیر', hint: '' }
   };
   const num = (v, min, max) => {
@@ -52,6 +53,7 @@ module.exports = ({ q, bad, str, fa, body, featureOn, on }) => {
 
   // real events (sent by other parts of the server)
   on('signup', d => award('signup', d.userId, 'signup'));
+  on('comment_posted', d => award('comment_posted', d.userId, 'comment:' + d.id));
   on('order_confirmed', async o => {
     await award(o.type + '_confirmed', o.user_id, 'order:' + o.id, { qty: o.qty });
     if (o.type === 'sell') {
