@@ -1,5 +1,5 @@
 'use strict';
-// Sekeh Chandeh app server - part 1: core (database, accounts, feature switches)
+// Sekeh Chandeh app server - core (database, accounts, feature switches) + modules
 const http = require('http'), crypto = require('crypto');
 const { Pool } = require('pg');
 
@@ -79,6 +79,7 @@ async function init() {
       console.log('admin account created: ' + ADMIN_USER);
     } else console.warn('WARNING: no admin exists. Set ADMIN_USER and ADMIN_PASS (min 6 chars).');
   }
+  for (const m of modules) if (m.init) await m.init();
   console.log('database ready');
 }
 
@@ -120,8 +121,10 @@ async function api(req, p) {
     if (u.disabled) throw bad('حساب شما مسدود شده است.', 403);
     return { token: sign({ id: u.id }, u.role === 'admin' ? 12 * 36e5 : 30 * 864e5), user: pubUser(u) };
   }
+  for (const mod of modules) if (mod.pub) { const r = await mod.pub(req, p); if (r !== undefined) return r; }
   const user = await authUser(req);
   if (p === '/me' && m === 'GET') return { user: pubUser(user) };
+  for (const mod of modules) if (mod.route) { const r = await mod.route(req, p, user); if (r !== undefined) return r; }
   if (p.startsWith('/admin/')) {
     if (user.role !== 'admin') throw bad('دسترسی ندارید', 403);
     return adminApi(req, p.slice(6), user);
@@ -129,7 +132,7 @@ async function api(req, p) {
   throw bad('آدرس پیدا نشد.', 404);
 }
 
-async function adminApi(req, p) {
+async function adminApi(req, p, user) {
   const m = req.method; let r;
   if (p === '/features' && m === 'GET') return { items: (await q('select key,label,enabled from features order by key')).rows };
   if ((r = /^\/features\/([a-z_]+)$/.exec(p)) && m === 'PUT') {
@@ -139,8 +142,13 @@ async function adminApi(req, p) {
     if (!x.rows[0]) throw bad('پیدا نشد.', 404);
     return x.rows[0];
   }
+  for (const mod of modules) if (mod.admin) { const x = await mod.admin(req, p, user); if (x !== undefined) return x; }
   throw bad('آدرس پیدا نشد.', 404);
 }
+
+// ---------- modules (each file adds its own tables and routes) ----------
+const featureOn = async k => { const r = await q('select enabled from features where key=$1', [k]); return !!(r.rows[0] && r.rows[0].enabled); };
+const modules = ['./coins_orders'].map(f => require(f)({ q, bad, str, fa, body, authUser, featureOn }));
 
 // ---------- server ----------
 const server = http.createServer(async (req, res) => {
