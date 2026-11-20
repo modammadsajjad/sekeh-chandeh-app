@@ -111,6 +111,7 @@ async function api(req, p) {
     let u;
     try { u = (await q('insert into users(username,phone,card,pw) values($1,$2,$3,$4) returning *', [username, phone, card, hashPw(pw)])).rows[0]; }
     catch (e) { if (e.code === '23505') throw bad('این نام کاربری قبلاً گرفته شده است.'); throw e; }
+    await emit('signup', { userId: u.id });
     return { token: sign({ id: u.id }, 30 * 864e5), user: pubUser(u) };
   }
   if (p === '/login' && m === 'POST') {
@@ -148,7 +149,10 @@ async function adminApi(req, p, user) {
 
 // ---------- modules (each file adds its own tables and routes) ----------
 const featureOn = async k => { const r = await q('select enabled from features where key=$1', [k]); return !!(r.rows[0] && r.rows[0].enabled); };
-const modules = ['./coins_orders'].map(f => require(f)({ q, bad, str, fa, body, authUser, featureOn }));
+const bus = {};
+const on = (ev, fn) => (bus[ev] = bus[ev] || []).push(fn);
+const emit = async (ev, d) => { for (const fn of bus[ev] || []) { try { await fn(d); } catch (e) { console.error('event ' + ev + ' failed:', e.message); } } };
+const modules = ['./coins_orders', './points'].map(f => require(f)({ q, bad, str, fa, body, authUser, featureOn, on, emit }));
 
 // ---------- server ----------
 const server = http.createServer(async (req, res) => {
