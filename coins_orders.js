@@ -2,7 +2,7 @@
 // Part 2: coins (prices) and orders (sell / buy requests)
 const crypto = require('crypto');
 
-module.exports = ({ q, bad, str, fa, body, authUser, featureOn }) => {
+module.exports = ({ q, bad, str, fa, body, authUser, featureOn, emit }) => {
   const num = (v, min, max) => {
     const n = Number(fa(String(v)));
     return Number.isInteger(n) && n >= min && n <= max ? n : null;
@@ -123,6 +123,7 @@ module.exports = ({ q, bad, str, fa, body, authUser, featureOn }) => {
         "update orders set status=$1, admin_note=$2, updated_at=now() where id=$3 and status='pending' returning *",
         [status, str(b.note, 300), +r[1]]);
       if (!x.rows[0]) throw bad('این سفارش در انتظار بررسی نیست.');
+      if (status === 'confirmed') await emit('order_confirmed', x.rows[0]);
       return { order: pubOrder(x.rows[0]) };
     }
   }
