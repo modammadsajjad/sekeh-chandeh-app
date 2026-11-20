@@ -10,7 +10,7 @@ module.exports = ({ q, bad, str, fa, body, authUser, featureOn, emit }) => {
   const newCode = () => crypto.randomBytes(5).toString('hex').toUpperCase();
   const pubOrder = o => ({
     id: o.id, code: o.code, type: o.type, coin_name: o.coin_name, qty: o.qty,
-    unit_price: +o.unit_price, total: +o.total, payout: o.payout, card: o.card,
+    unit_price: +o.unit_price, total: +o.total, payout: o.payout, card: o.card, proof_file: o.proof_file,
     status: o.status, admin_note: o.admin_note, created_at: o.created_at
   });
   const pubCoin = c => ({ id: c.id, name: c.name, buy_price: +c.buy_price, sell_price: +c.sell_price });
@@ -60,12 +60,22 @@ module.exports = ({ q, bad, str, fa, body, authUser, featureOn, emit }) => {
       if (!(price > 0)) throw bad('قیمت این سکه هنوز تعیین نشده است.');
       const pending = (await q("select count(*)::int n from orders where user_id=$1 and status='pending'", [user.id])).rows[0].n;
       if (pending >= 10) throw bad('شما ۱۰ سفارش در انتظار دارید. ابتدا منتظر بررسی آن‌ها بمانید.', 429);
-      let card = str(fa(b.card || ''), 16) || user.card;
-      if (!/^\d{16}$/.test(card)) throw bad('شماره کارت باید ۱۶ رقم باشد.');
+      const payout = b.payout === 'wallet' ? 'wallet' : 'card';
+      if (payout === 'wallet' && (type !== 'sell' || !(await featureOn('wallet')))) throw bad('پرداخت به کیف پول فعلاً ممکن نیست.');
+      let card = '';
+      if (payout === 'card') {
+        card = str(fa(b.card || ''), 16) || user.card;
+        if (!/^\d{16}$/.test(card)) throw bad('شماره کارت باید ۱۶ رقم باشد.');
+      }
+      let proof = null;
+      if (b.proof_file != null) {
+        proof = num(b.proof_file, 1, 2147483647);
+        if (!proof || !(await q('select 1 from files where id=$1 and owner_id=$2', [proof, user.id])).rows.length) throw bad('فایل نامعتبر است.');
+      }
       const o = (await q(
-        `insert into orders(code,user_id,type,coin_id,coin_name,qty,unit_price,total,card)
-         values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
-        [newCode(), user.id, type, coin.id, coin.name, qty, price, price * qty, card])).rows[0];
+        `insert into orders(code,user_id,type,coin_id,coin_name,qty,unit_price,total,payout,card,proof_file)
+         values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+        [newCode(), user.id, type, coin.id, coin.name, qty, price, price * qty, payout, card, proof])).rows[0];
       return { order: pubOrder(o) };
     }
     if (p === '/orders' && m === 'GET') {
