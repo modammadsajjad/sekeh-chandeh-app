@@ -54,7 +54,22 @@ function body(req, max = 1e6) {
     req.on('error', no);
   });
 }
-const pubUser = u => ({ id: u.id, username: u.username, phone: u.phone, card: u.card, avatar: u.avatar, role: u.role });
+const parseJson = t => { try { return JSON.parse(t || '{}'); } catch (e) { return {}; } };
+const pubUser = u => ({ id: u.id, username: u.username, phone: u.phone, card: u.card, avatar: u.avatar, role: u.role, prefs: parseJson(u.prefs) });
+// simple in-memory limiter per key (for uploads, messages, ...)
+const rl = new Map();
+function rate(key, n, ms) {
+  const now = Date.now(), a = (rl.get(key) || []).filter(t => now - t < ms);
+  if (a.length >= n) throw bad('تعداد درخواست‌ها زیاد است. کمی صبر کنید.', 429);
+  a.push(now); rl.set(key, a);
+}
+// run several queries in one transaction
+async function tx(fn) {
+  const c = await pool.connect();
+  try { await c.query('begin'); const r = await fn(c); await c.query('commit'); return r; }
+  catch (e) { try { await c.query('rollback'); } catch (_) {} throw e; }
+  finally { c.release(); }
+}
 
 // ---------- database ----------
 const FEATURES = [ // key, label, enabled by default
@@ -152,7 +167,8 @@ const featureOn = async k => { const r = await q('select enabled from features w
 const bus = {};
 const on = (ev, fn) => (bus[ev] = bus[ev] || []).push(fn);
 const emit = async (ev, d) => { for (const fn of bus[ev] || []) { try { await fn(d); } catch (e) { console.error('event ' + ev + ' failed:', e.message); } } };
-const modules = ['./coins_orders', './points'].map(f => require(f)({ q, bad, str, fa, body, authUser, featureOn, on, emit }));
+const modules = ['./coins_orders', './points', './account', './wallet', './support', './community']
+  .map(f => require(f)({ q, bad, str, fa, body, authUser, featureOn, on, emit, rate, tx, hashPw, checkPw }));
 
 // ---------- server ----------
 const server = http.createServer(async (req, res) => {
@@ -164,7 +180,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/health') { res.writeHead(200, { 'content-type': 'text/plain' }); return res.end('ok'); }
     if (p === '/') { res.writeHead(200, { 'content-type': 'text/plain' }); return res.end('Sekeh Chandeh app server'); }
     if (!p.startsWith('/api/')) throw bad('آدرس پیدا نشد.', 404);
-    send(200, await api(req, p.slice(4)), cors);
+    const out = await api(req, p.slice(4));
+    if (out && out.__raw) { res.writeHead(out.__raw.status || 200, { ...out.__raw.headers, ...cors }); return res.end(out.__raw.body); }
+    send(200, out, cors);
   } catch (e) {
     if (!(e instanceof HttpError)) console.error('error:', e);
     send(e.status || 500, { error: e.status ? e.message : 'خطای سرور' }, cors);
