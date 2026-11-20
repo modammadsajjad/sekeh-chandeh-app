@@ -1,0 +1,10 @@
+{
+  "name": "sekeh-chandeh-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Server for the Sekeh Chandeh Android apps",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "pg": "^8.13.0" }
+}
