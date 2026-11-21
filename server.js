@@ -35,7 +35,7 @@ function hashPw(pw, salt = crypto.randomBytes(16).toString('hex')) {
 }
 function checkPw(pw, h) {
   if (!h || typeof pw !== 'string') return false;
-  const [salt, hex] = h.split(':'); if (!salt || !hex) return false;
+  const [salt, hex] = h.split(':'); if (!salt || !hex || hex.length !== 64) return false;
   return crypto.timingSafeEqual(crypto.scryptSync(pw, salt, 32), Buffer.from(hex, 'hex'));
 }
 const tries = new Map();
